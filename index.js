@@ -167,19 +167,19 @@ instance.prototype.init = function() {
 
 };
 
+instance.prototype.roundIfDefined = (number, decimalPlaces) => {
+	if (number) {
+		return Number(Math.round(number + "e" + decimalPlaces) + "e-" + decimalPlaces)
+	} else {
+		return number
+	}
+}
+
 instance.prototype.process_stream_vars = function(data) {
 	var self = this;
 
 	for (var s in data) {
 		self.states[s] = data[s];
-	}
-
-	const roundIfDefined = (number, decimalPlaces) => {
-		if (number) {
-			return Number(Math.round(number + "e" + decimalPlaces) + "e-" + decimalPlaces)
-		} else {
-			return number
-		}
 	}
 
 	self.setVariable('bytes_per_sec', data['bytes-per-sec']);
@@ -190,7 +190,7 @@ instance.prototype.process_stream_vars = function(data) {
 		self.setVariable('kbits_per_sec', data['kbits-per-sec'].toLocaleString());
 	}
 
-	self.setVariable('average_frame_time', roundIfDefined(data['average-frame-time'], 2));
+	self.setVariable('average_frame_time', self.roundIfDefined(data['average-frame-time'], 2));
 	self.setVariable('preview_only', data['preview-only']);
 	self.setVariable('recording', data['recording']);
 	self.setVariable('strain', data['strain']);
@@ -210,23 +210,15 @@ instance.prototype.process_obs_stats = function(data) {
 		self.states[s] = data[s];
 	}
 
-	const roundIfDefined = (number, decimalPlaces) => {
-		if (number) {
-			return Number(Math.round(number + "e" + decimalPlaces) + "e-" + decimalPlaces)
-		} else {
-			return number
-		}
-	}
-
-	self.setVariable('fps', roundIfDefined(data['fps'], 2));
+	self.setVariable('fps', self.roundIfDefined(data['fps'], 2));
 	self.setVariable('render_total_frames', data['render-total-frames']);
 	self.setVariable('render_missed_frames', data['render-missed-frames']);
 	self.setVariable('output_total_frames', data['output-total-frames']);
 	self.setVariable('output_skipped_frames', data['output-skipped-frames']);
-	self.setVariable('average_frame_time', roundIfDefined(data['average-frame-time'], 2));
-	self.setVariable('cpu_usage', roundIfDefined(data['cpu-usage'], 2));
-	self.setVariable('memory_usage', roundIfDefined(data['memory-usage'], 2));
-	self.setVariable('free_disk_space', roundIfDefined(data['free-disk-space'], 2));
+	self.setVariable('average_frame_time', self.roundIfDefined(data['average-frame-time'], 2));
+	self.setVariable('cpu_usage', self.roundIfDefined(data['cpu-usage'], 2));
+	self.setVariable('memory_usage', self.roundIfDefined(data['memory-usage'], 2));
+	self.setVariable('free_disk_space', self.roundIfDefined(data['free-disk-space'], 2));
 };
 
 
@@ -336,9 +328,11 @@ instance.prototype.updateScenesAndSources = async function() {
 
 	let findNestedScenes = (sceneName) => {
 		let nested = []
-		for (let source of self.scenes[sceneName].sources) {
-			if (self.scenes[source.name] && source.render) {
-				nested.push(source.name)
+		if (self.scenes[sceneName]){
+			for (let source of self.scenes[sceneName].sources) {
+				if (self.scenes[source.name] && source.render) {
+					nested.push(source.name)
+				}
 			}
 		}
 		return nested;
@@ -432,6 +426,42 @@ instance.prototype.actions = function() {
 	}
 
 	self.setActions({
+		'enable_studio_mode': {
+			label: 'Enable StudioMode',
+		},
+		'disable_studio_mode': {
+			label: 'Disable StudioMode',
+		},
+		'toggle_studio_mode': {
+			label: 'Toggle StudioMode',
+		},
+		'start_recording': {
+			label: 'Start Recording',
+		},
+		'stop_recording': {
+			label: 'Stop Recording',
+		},
+		'pause_recording': {
+			label: 'Pause Recording',
+		},
+		'resume_recording': {
+			label: 'Resume Recording',
+		},
+		'start_streaming': {
+			label: 'Start Streaming',
+		},
+		'stop_streaming': {
+			label: 'Stop Streaming',
+		},
+		'start_replay_buffer': {
+			label: 'Start Replay Buffer',
+		},
+		'stop_replay_buffer': {
+			label: 'Stop Replay Buffer',
+		},
+		'save_replay_buffer': {
+			label: 'Save Replay Buffer',
+		},
 		'set_scene': {
 			label: 'Change scene',
 			options: [
@@ -618,6 +648,42 @@ instance.prototype.action = function(action) {
 	}
 
 	switch (action.action) {
+		case 'enable_studio_mode':
+			handle = self.obs.send('EnableStudioMode');
+			break;
+		case 'disable_studio_mode':
+			handle = self.obs.send('DisableStudioMode');
+			break;
+		case 'toggle_studio_mode':
+			handle = self.obs.send('ToggleStudioMode');
+			break;
+		case 'start_recording':
+			handle = self.obs.send('StartRecording');
+			break;
+		case 'stop_recording':
+			handle = self.obs.send('StopRecording');
+			break;
+		case 'pause_recording':
+			handle = self.obs.send('PauseRecording');
+			break;
+		case 'resume_recording':
+			handle = self.obs.send('ResumeRecording');
+			break;
+		case 'start_streaming':
+			handle = self.obs.send('StartStreaming');
+			break;
+		case 'stop_streaming':
+			handle = self.obs.send('StopStreaming');
+			break;
+		case 'start_replay_buffer':
+			handle = self.obs.send('StartReplayBuffer');
+			break;
+		case 'stop_replay_buffer':
+			handle = self.obs.send('StopReplayBuffer');
+			break;
+		case 'save_replay_buffer':
+			handle = self.obs.send('SaveReplayBuffer');
+			break;
 		case 'set_scene':
 			handle = self.obs.send('SetCurrentScene', {
 				'scene-name': action.options.scene
