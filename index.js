@@ -11,6 +11,7 @@ function instance(system, id, config) {
 	instance_skel.apply(this, arguments);
 
 	self.actions();
+	self.init_variables();
 
 	return self;
 }
@@ -54,6 +55,10 @@ instance.prototype.init = function() {
 	self.tcp.on('connect', function () {
 		// disconnect immediately because further comm takes place via OBSWebSocket and not
 		// via this tcp sockets.
+		if (!self.tcp) {
+			return;
+		}
+
 		self.tcp.destroy();
 		delete self.tcp;
 
@@ -75,6 +80,8 @@ instance.prototype.init = function() {
 			self.updateTransitionList();
 			self.updateScenesAndSources();
 			self.updateInfo();
+			self.updateProfiles();
+			self.updateSceneCollections();
 		}).catch(err => {
 			self.status(self.STATUS_ERROR, err);
 		});
@@ -186,6 +193,23 @@ instance.prototype.init = function() {
 		self.obs.on('TransitionDurationChanged', function(data) {
 			self.updateTransitionList();
 		});
+
+		self.obs.on('ProfileChanged', (data) => {
+			self.updateCurrentProfile()
+		})
+
+		self.obs.on('ProfileListChanged', (data) => {
+			self.updateProfileList()
+		})
+
+		self.obs.on('SceneCollectionChanged', (data) => {
+			self.updateCurrentSceneCollection()
+		})
+
+		self.obs.on('SceneCollectionListChanged', (data) => {
+			self.updateSceneCollectionList()
+		})
+
 	});
 
 	debug = self.debug;
@@ -340,7 +364,6 @@ instance.prototype.updateTransitionList = async function() {
 	self.actions();
 	self.init_presets();
 	self.init_feedbacks();
-	self.init_variables();
 }
 
 instance.prototype.updateScenesAndSources = async function() {
@@ -402,7 +425,6 @@ instance.prototype.updateScenesAndSources = async function() {
 	self.actions();
 	self.init_presets();
 	self.init_feedbacks();
-	self.init_variables();
 	self.checkFeedbacks('scene_item_active');
 	self.checkFeedbacks('scene_active');
 };
@@ -418,6 +440,46 @@ instance.prototype.updateInfo = function() {
 	});
 };
 
+instance.prototype.updateProfiles = function() {
+	this.updateProfileList()
+	this.updateCurrentProfile()
+}
+
+instance.prototype.updateProfileList = async function() {
+	let data = await this.obs.send("ListProfiles")
+	this.profiles = data.profiles.map(p => p['profile-name'])
+	this.actions();
+	this.init_feedbacks();
+}
+
+instance.prototype.updateCurrentProfile = async function() {
+	let {profileName} = await this.obs.send("GetCurrentProfile")
+
+	this.states['current_profile'] = profileName
+	this.setVariable('profile', profileName)
+	this.checkFeedbacks('profile_active');
+}
+
+instance.prototype.updateSceneCollections = function() {
+	this.updateSceneCollectionList()
+	this.updateCurrentSceneCollection()
+}
+
+instance.prototype.updateSceneCollectionList = async function() {
+	let data = await this.obs.send("ListSceneCollections")
+	this.sceneCollections = data.sceneCollections.map(s => s['sc-name'])
+	this.actions();
+	this.init_feedbacks();
+}
+
+instance.prototype.updateCurrentSceneCollection = async function() {
+	let {scName} = await this.obs.send("GetCurrentSceneCollection")
+
+	this.states['current_scene_collection'] = scName
+	this.setVariable('scene_collection', scName)
+	this.checkFeedbacks('scene_collection_active')
+}
+
 // When module gets deleted
 instance.prototype.destroy = function() {
 	var self = this;
@@ -426,6 +488,8 @@ instance.prototype.destroy = function() {
 	self.states = {};
 	self.scenelist = [];
 	self.sourcelist = [];
+	self.profiles = [];
+	self.sceneCollections = [];
 	self.feedbacks = {};
 	if (self.obs !== undefined) {
 		self.obs.disconnect();
@@ -443,6 +507,8 @@ instance.prototype.actions = function() {
 	self.scenelist = [];
 	self.sourcelist = [];
 	self.transitionlist = [];
+	self.profilelist = []
+	self.scenecollectionlist = []
 
 	var s;
 	if (self.sources !== undefined) {
@@ -463,6 +529,18 @@ instance.prototype.actions = function() {
 	if (self.transitions !== undefined) {
 		for (s in self.transitions) {
 			self.transitionlist.push({ id: s, label: s });
+		}
+	}
+
+	if (self.profiles !== undefined) {
+		for (let s of self.profiles) {
+			self.profilelist.push({ id: s, label: s });
+		}
+	}
+
+	if (self.sceneCollections !== undefined) {
+		for (let s of self.sceneCollections) {
+			self.scenecollectionlist.push({ id: s, label: s });
 		}
 	}
 
@@ -668,6 +746,30 @@ instance.prototype.actions = function() {
 					required: true
 				}
 			]
+		},
+		'set_profile': {
+			label: 'Set Profile',
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Profile',
+					id: 'profile',
+					default: '',
+					choices: self.profilelist,
+				}
+			]
+		},
+		'set_scene_collection': {
+			label: 'Set Scene Collection',
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Scene Collection',
+					id: 'scene_collection',
+					default: '',
+					choices: self.scenecollectionlist,
+				}
+			]
 		}
 	});
 };
@@ -795,6 +897,15 @@ instance.prototype.action = function(action) {
 				'hotkeyName': action.options.id,
 			})
 			break;
+		case 'set_profile':
+			handle = self.obs.send('SetCurrentProfile', {
+				'profile-name': action.options.profile,
+			})
+			break;
+		case 'set_scene_collection':
+			handle = self.obs.send('SetCurrentSceneCollection', {
+				'sc-name': action.options.scene_collection,
+			})
 	}
 
 	handle.catch(error => {
@@ -915,6 +1026,58 @@ instance.prototype.init_feedbacks = function() {
 		]
 	};
 
+	feedbacks['profile_active'] = {
+		label: 'Change colors when profile is active',
+		description: 'If the profile is active, change color',
+		options: [
+			{
+				type: 'colorpicker',
+				label: 'Foreground color',
+				id: 'fg',
+				default: self.rgb(255, 255, 255)
+			},
+			{
+				type: 'colorpicker',
+				label: 'Background color',
+				id: 'bg',
+				default: self.rgb(100, 255, 0)
+			},
+			{
+				type: 'dropdown',
+				label: 'Profile name',
+				id: 'profile',
+				default: '',
+				choices: self.profilelist
+			}
+		]
+	}
+
+	feedbacks['scene_collection_active'] = {
+		label: 'Change colors when scene collection is active',
+		description: 'If the scene collection is active, change color',
+		options: [
+			{
+				type: 'colorpicker',
+				label: 'Foreground color',
+				id: 'fg',
+				default: self.rgb(255, 255, 255)
+			},
+			{
+				type: 'colorpicker',
+				label: 'Background color',
+				id: 'bg',
+				default: self.rgb(100, 255, 0)
+			},
+			{
+				type: 'dropdown',
+				label: 'Scene collection name',
+				id: 'scene_collection',
+				default: '',
+				choices: self.scenecollectionlist,
+			}
+		]
+	}
+
 	self.setFeedbackDefinitions(feedbacks);
 };
 
@@ -947,6 +1110,18 @@ instance.prototype.feedback = function(feedback) {
 	}
 	if (feedback.type === 'scene_item_active')  {
 		if ((self.states[feedback.options.source] === true)) {
+			return { color: feedback.options.fg, bgcolor: feedback.options.bg };
+		}
+	}
+
+	if (feedback.type === 'profile_active') {
+		if (self.states['current_profile'] === feedback.options.profile) {
+			return { color: feedback.options.fg, bgcolor: feedback.options.bg };
+		}
+	}
+
+	if (feedback.type === 'scene_collection_active') {
+		if (self.states['current_scene_collection'] === feedback.options.scene_collection) {
 			return { color: feedback.options.fg, bgcolor: feedback.options.bg };
 		}
 	}
@@ -1109,6 +1284,8 @@ instance.prototype.init_variables = function() {
 	variables.push({ name: 'total_stream_time', label: 'Total streaming time' });
 	variables.push({ name: 'scene_active', label: 'Current active scene' });
 	variables.push({ name: 'scene_preview', label: 'Current preview scene' });
+	variables.push({ name: 'profile', label: 'Current profile' })
+	variables.push({ name: 'scene_collection', label: 'Current scene collection' })
 
 	self.setVariableDefinitions(variables);
 };
